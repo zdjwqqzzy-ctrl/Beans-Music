@@ -37,6 +37,24 @@ struct BeansApp: App {
 
     var body: some Scene {
         WindowGroup {
+            Group {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-ipad-player-preview") {
+                    PlayerLayoutPreview()
+                        .environmentObject(player)
+                        .environmentObject(player.clock)
+                        .environmentObject(theme)
+                } else {
+                    applicationContent
+                }
+                #else
+                applicationContent
+                #endif
+            }
+        }
+    }
+
+    private var applicationContent: some View {
             ZStack {
                 RootView()
                     .environmentObject(auth)
@@ -60,6 +78,5 @@ struct BeansApp: App {
             .onChange(of: scenePhase) { phase in
                 guard phase == .active else { return }
             }
-        }
     }
 }

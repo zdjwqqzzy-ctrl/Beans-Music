@@ -18,6 +18,9 @@ struct ReferencePlaybackView: View {
     @EnvironmentObject private var player: PlayerManager
     @EnvironmentObject private var clock: PlaybackClock
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @ScaledMetric(relativeTo: .title) private var tabletLyricSize: CGFloat = 34
     @ObservedObject private var localLibrary = LocalLibraryStore.shared
     @ObservedObject private var appleLayout = AppleMusicLayoutStore.shared
 
@@ -58,6 +61,9 @@ struct ReferencePlaybackView: View {
             ZStack {
                 playerBackground
 
+                if usesTabletLayout(geometry.size) {
+                    tabletPlayer(size: geometry.size)
+                } else {
                 VStack(spacing: 0) {
                     Color.clear.frame(height: ReferencePlaybackPresentationMetrics.headerTopSpacing)
 
@@ -81,6 +87,7 @@ struct ReferencePlaybackView: View {
 
                     playbackControls(bottomInset: geometry.safeAreaInsets.bottom)
                 }
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -90,6 +97,139 @@ struct ReferencePlaybackView: View {
                 .allowsHitTesting(false)
         }
         .onDisappear { resumeTask?.cancel() }
+    }
+
+    // Measure the current window, not UIScreen: Stage Manager and Split View can resize it.
+    private func usesTabletLayout(_ size: CGSize) -> Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && size.width >= 700 && size.height >= 500
+    }
+
+    private func tabletPlayer(size: CGSize) -> some View {
+        let margin: CGFloat = size.width >= 1000 ? 56 : 28
+        let gap: CGFloat = size.width >= 1000 ? 64 : 32
+        let available = min(size.width - margin * 2, 1320)
+        let leftWidth = min(460, (available - gap) * 0.46)
+        let artworkSize = min(leftWidth, max(160, size.height - (showVolumeControl ? 344 : 300)))
+
+        return VStack(spacing: 0) {
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(primaryColor.opacity(0.8))
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("收起播放器")
+                Spacer()
+                compactActionButton(icon: "bubble.left") { onComments() }
+                    .accessibilityLabel("评论")
+                compactActionButton(icon: "list.bullet") { onQueue() }
+                    .accessibilityLabel("播放队列")
+            }
+            .padding(.horizontal, margin)
+
+            HStack(spacing: gap) {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
+                    CoverImage(url: song?.coverURL, size: artworkSize, cornerRadius: 14,
+                               emptyHint: player.isBuffering ? "等待开始播放…" : nil)
+                        .frame(width: artworkSize, height: artworkSize)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .shadow(color: .black.opacity(0.32), radius: 28, y: 14)
+                        .scaleEffect(player.isPlaying ? 1 : 0.97)
+                        .animation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.86), value: player.isPlaying)
+                        .accessibilityLabel(song?.name ?? "专辑封面")
+                    tabletTrackHeader
+                        .padding(.top, 24)
+                    ReferenceScrubber()
+                        .padding(.top, 8)
+                    tabletTransport
+                        .padding(.top, 8)
+                    if showVolumeControl {
+                        ReferenceVolumeControl(accent: volumeColor, secondary: secondaryColor)
+                            .padding(.top, 8)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .frame(width: leftWidth)
+
+                lyricsContent(tablet: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(width: available)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var tabletTrackHeader: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(song?.name ?? "未在播放")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(primaryColor)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(secondaryColor)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            compactActionButton(icon: localLibrary.containsSong(song) ? "heart.fill" : "heart",
+                                active: localLibrary.containsSong(song), action: onFavorite)
+                .accessibilityLabel("收藏")
+            Menu {
+                Button("定时关闭", action: onSleepTimer)
+                Button("添加到本地歌单", action: onAddToLocalPlaylist)
+                if downloadFeatureUnlocked { Button("下载歌曲", action: onDownload) }
+                Button("播放器设置", action: onPlayerSettings)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(primaryColor)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("更多操作")
+        }
+    }
+
+    private var tabletTransport: some View {
+        HStack {
+            compactActionButton(icon: "shuffle", active: player.playMode == .shuffle) {
+                player.playMode = player.playMode == .shuffle ? .sequential : .shuffle
+            }
+            .accessibilityLabel("随机播放")
+            Spacer(minLength: 8)
+            Button { BeansHaptics.tap(); player.previous() } label: {
+                Image(systemName: "backward.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .frame(width: 48, height: 54)
+            }
+            .accessibilityLabel("上一首")
+            Spacer(minLength: 8)
+            Button { BeansHaptics.tap(); player.togglePlayPause() } label: {
+                PlayPauseMorphIcon(isPlaying: player.isPlaying, size: 30)
+                    .frame(width: 60, height: 60)
+            }
+            .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
+            Spacer(minLength: 8)
+            Button { BeansHaptics.tap(); player.next() } label: {
+                Image(systemName: "forward.fill")
+                    .font(.system(size: 28, weight: .semibold))
+                    .frame(width: 48, height: 54)
+            }
+            .accessibilityLabel("下一首")
+            Spacer(minLength: 8)
+            compactActionButton(icon: player.playMode == .repeatOne ? "repeat.1" : "repeat",
+                                active: player.playMode == .repeatOne) {
+                player.playMode = player.playMode == .repeatOne ? .sequential : .repeatOne
+            }
+            .accessibilityLabel("单曲循环")
+        }
+        .foregroundStyle(primaryColor)
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -226,15 +366,21 @@ struct ReferencePlaybackView: View {
                 .padding(.horizontal, 24)
                 .padding(.bottom, 10)
 
+            lyricsContent(tablet: false)
+        }
+    }
+
+    private func lyricsContent(tablet: Bool) -> some View {
+        Group {
             if lyrics.isEmpty {
                 emptyLyricsView
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(showsIndicators: false) {
-                        LazyVStack(alignment: .leading, spacing: 26) {
+                        LazyVStack(alignment: .leading, spacing: tablet ? 36 : 26) {
                             Color.clear.frame(height: max(88, lyricsViewportHeight * 0.30))
                             ForEach(lyrics) { line in
-                                lyricLine(line, isFocused: line.id == currentVisualLyricID)
+                                lyricLine(line, isFocused: line.id == currentVisualLyricID, tablet: tablet)
                                     .id(line.id)
                                     .background {
                                         GeometryReader { rowGeometry in
@@ -247,7 +393,7 @@ struct ReferencePlaybackView: View {
                             }
                             Color.clear.frame(height: max(110, lyricsViewportHeight * 0.34))
                         }
-                        .padding(.horizontal, 28)
+                        .padding(.horizontal, tablet ? 14 : 28)
                     }
                     .coordinateSpace(name: "referenceLyricsViewport")
                     .mask(
@@ -278,6 +424,10 @@ struct ReferencePlaybackView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
                             scrollToPlaybackLyric(proxy: proxy, animated: false)
                         }
+                    }
+                    .onChange(of: lyricsViewportHeight) { _ in
+                        guard !isDraggingLyrics else { return }
+                        scrollToPlaybackLyric(proxy: proxy, animated: false)
                     }
                     .onChange(of: currentPlaybackLyricID) { _ in
                         guard !isDraggingLyrics else { return }
@@ -489,7 +639,7 @@ struct ReferencePlaybackView: View {
     }
 
     private var currentVisualLyricID: UUID? {
-        isDraggingLyrics ? focusedLyricID : (focusedLyricID ?? currentPlaybackLyricID)
+        isDraggingLyrics ? focusedLyricID : currentPlaybackLyricID
     }
 
     private var subtitle: String {
@@ -498,7 +648,7 @@ struct ReferencePlaybackView: View {
         return parts.isEmpty ? "未知歌曲" : parts.joined(separator: " · ")
     }
 
-    private func lyricLine(_ line: LyricLine, isFocused: Bool) -> some View {
+    private func lyricLine(_ line: LyricLine, isFocused: Bool, tablet: Bool = false) -> some View {
         Button {
             BeansHaptics.tap()
             player.seek(to: LyricTiming.seekTime(for: line, userOffset: lyricOffset))
@@ -506,7 +656,9 @@ struct ReferencePlaybackView: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text(line.text.isEmpty ? " " : line.text)
-                        .font(BeansFont.appFont(isFocused ? 27 : 23, isFocused ? .bold : .semibold))
+                        .font(tablet ? .system(size: min(tabletLyricSize, 52), weight: .bold) : BeansFont.appFont(isFocused ? 27 : 23, isFocused ? .bold : .semibold))
+                        .tracking(tablet ? -0.6 : 0)
+                        .lineSpacing(tablet ? 3 : 0)
                         .foregroundStyle(primaryColor.opacity(isFocused ? 1 : 0.36))
                         .fixedSize(horizontal: false, vertical: true)
                     if isFocused && isDraggingLyrics {
@@ -516,17 +668,17 @@ struct ReferencePlaybackView: View {
                             .foregroundStyle(secondaryColor.opacity(0.82))
                     }
                 }
-                if isFocused, let translation = line.translation, !translation.isEmpty {
+                if (isFocused || tablet), let translation = line.translation, !translation.isEmpty {
                     Text(translation)
-                        .font(BeansFont.appFont(15, .medium))
+                        .font(tablet ? .system(size: min(tabletLyricSize * 0.56, 25), weight: .semibold) : BeansFont.appFont(15, .medium))
                         .foregroundStyle(secondaryColor.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
-            .scaleEffect(isFocused ? 1.06 : 0.84, anchor: .leading)
-            .blur(radius: isFocused ? 0 : 0.7)
+            .scaleEffect(tablet ? 1 : (isFocused ? 1.06 : 0.84), anchor: .leading)
+            .blur(radius: isFocused || reduceMotion ? 0 : (tablet ? 1.1 : 0.7))
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.28, dampingFraction: 0.88), value: isFocused)
@@ -541,7 +693,7 @@ struct ReferencePlaybackView: View {
     private func scrollToPlaybackLyric(proxy: ScrollViewProxy, animated: Bool) {
         guard let id = currentPlaybackLyricID else { return }
         let action = { proxy.scrollTo(id, anchor: .center) }
-        if animated {
+        if animated && !reduceMotion {
             withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.38)) { action() }
         } else {
             action()
@@ -566,6 +718,7 @@ struct ReferencePlaybackView: View {
                     try? await Task.sleep(nanoseconds: 2_500_000_000)
                     guard !Task.isCancelled else { return }
                     isDraggingLyrics = false
+                    scrollToPlaybackLyric(proxy: proxy, animated: true)
                 }
             }
     }
