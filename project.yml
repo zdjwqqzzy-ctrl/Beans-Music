@@ -19,9 +19,9 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.beans.app
-        MARKETING_VERSION: "1.6.5.1"
-        CURRENT_PROJECT_VERSION: "39"
-        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "1.6.6"
+        CURRENT_PROJECT_VERSION: "100"
+        TARGETED_DEVICE_FAMILY: "1,2"
         SWIFT_OBJC_BRIDGING_HEADER: Beans/Beans-Bridging-Header.h
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     info:
@@ -36,11 +36,27 @@ targets:
           UIColorName: LaunchBackgroundColor
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
         CADisableMinimumFrameDurationOnPhone: true
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+
+  PlayerLayoutUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests]
+    dependencies:
+      - target: Beans
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.beans.app.layouttests
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   Beans:
@@ -51,3 +67,12 @@ schemes:
       config: Debug
     archive:
       config: Release
+
+  # UI test scheme uses a debug-only fixture and never changes the release player.
+  PlayerLayoutChecks:
+    build:
+      targets:
+        Beans: all
+        PlayerLayoutUITests: [test]
+    test:
+      targets: [PlayerLayoutUITests]
