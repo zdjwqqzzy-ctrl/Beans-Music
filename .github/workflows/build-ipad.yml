@@ -1,0 +1,58 @@
+name: Build iPad Player
+on:
+  push:
+    branches: [codex/ipad-player]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build unsigned arm64 IPA
+        run: |
+          set -eo pipefail
+          xcodebuild -project Beans.xcodeproj -scheme Beans -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tee release-build.log
+          mkdir -p package/Payload
+          cp -R build/Build/Products/Release-iphoneos/Beans.app package/Payload/
+          (cd package && /usr/bin/zip -qry ../Beans-1.6.6-iPad.ipa Payload)
+          python3 scripts/validate_ipa.py Beans-1.6.6-iPad.ipa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Beans-iPad-IPA
+          path: |
+            Beans-1.6.6-iPad.ipa
+            Beans-1.6.6-iPad.ipa.sha256
+      - name: Choose iPad Pro simulator
+        run: |
+          xcrun simctl list devices available -j > devices.json
+          python3 - <<'PY'
+          import json, os
+          devices = [d for group in json.load(open('devices.json'))['devices'].values() for d in group if 'iPad Pro' in d['name']]
+          device = next((d for d in devices if '13-inch' in d['name']), devices[0])
+          with open(os.environ['GITHUB_ENV'], 'a') as f: f.write('IPAD_SIMULATOR=' + device['udid'] + '\n')
+          print(device['name'])
+          PY
+      - name: Test portrait and landscape layout
+        run: |
+          set -eo pipefail
+          xcodebuild -project Beans.xcodeproj -scheme PlayerLayoutChecks -configuration Debug -destination "platform=iOS Simulator,id=$IPAD_SIMULATOR" -derivedDataPath simulator-build -resultBundlePath LayoutChecks.xcresult CODE_SIGNING_ALLOWED=NO test 2>&1 | tee simulator-build.log
+      - name: Export screenshots
+        if: always()
+        run: |
+          if [ -d LayoutChecks.xcresult ]; then
+            xcrun xcresulttool export attachments --path LayoutChecks.xcresult --output-path screenshots
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: iPad-layout-checks
+          path: |
+            screenshots
+            *-build.log
