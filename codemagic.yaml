@@ -1,0 +1,26 @@
+workflows:
+  ipad-unsigned:
+    name: Build iPad unsigned IPA
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: 26.4
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          brew install xcodegen
+      - name: Generate project
+        script: |
+          xcodegen generate
+      - name: Build unsigned arm64 IPA
+        script: |
+          set -eo pipefail
+          xcodebuild -project Beans.xcodeproj -scheme Beans -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tee release-build.log
+          mkdir -p package/Payload
+          cp -R build/Build/Products/Release-iphoneos/Beans.app package/Payload/
+          (cd package && /usr/bin/zip -qry ../Beans-1.6.6-iPad.ipa Payload)
+          python3 scripts/validate_ipa.py Beans-1.6.6-iPad.ipa
+          ls -lh Beans-1.6.6-iPad.ipa
+    artifacts:
+      - Beans-1.6.6-iPad.ipa
+      - release-build.log
